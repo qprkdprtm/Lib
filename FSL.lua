@@ -2,8 +2,35 @@ if VIP_USER then
 	require 'VPrediction'
 	require 'Collision'
 end
-PrintChat("<font color=\"#CC00FF\">FreezingShot Lib Version 0.1 Alpha</font>")
 
+FSLVersion = "1.2"
+local latestVersion = nil
+local updateCheck = false
+
+function getDownloadVersion(response)
+    latestVersion = response
+end
+function getVersion()
+    GetAsyncWebResult("dl.dropboxusercontent.com","/s/y2mvdukzufccytw/FSL_Version.txt", a,getDownloadVersion)
+end 
+getVersion()
+function update()
+    if updateCheck == false then
+        local PATH = BOL_PATH.."Scripts\\Common\\FSL.lua"
+        local URL = "http://dl.dropboxusercontent.com/s/ocrro1tgfeoc1ta/FSL.lua"
+        if latestVersion~=nil and latestVersion ~= FSLVersion then
+            updateCheck = true
+            PrintChat("UPDATING FSL.lua")
+            DownloadFile(URL, PATH,function ()
+                PrintChat("UPDATED - reload please (F9 twice)")
+            end)            
+        elseif latestVersion == FSLVersion then
+            updateCheck = true
+            PrintChat("<font color=\"#CC00FF\">FreezingShot Lib Version " .. FSLVersion .. "</font>")       
+        end
+    end
+end
+AddTickCallback(update)
 --[[
                                                                                                             
                                              bbbbbbbb                                                       
@@ -224,6 +251,27 @@ function DrawCharName(Hero, Color)
 	DrawText(Hero.charName, Size or 20, x, y-70, Color or ARGB(255, 255, 255, 0))
 end
 
+-- Credits to Trees
+_G.sTable = {}
+function OverLoadPackets()
+	for scriptName, environment in pairs(_G.environment) do
+		if environment['OnSendPacket'] and type(environment['OnSendPacket']) == 'function' then
+			table.insert(_G.sTable, environment['OnSendPacket'])
+		end
+	end
+
+	_G.Packet.send = function(self, override)
+		if self.blocked then return end
+		local p = Packet.definition[self.values.name].encode(self)
+		if override ~= nil then
+			for i,v in ipairs(_G.sTable) do
+				if v(p, true) == false then return end
+			end
+		end
+		SendPacket(p)
+		return self
+	end
+end
 
 --[[
 
@@ -887,13 +935,21 @@ end
 
 function FSLSpells:CastSpell(Target)
 	if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
-		CastSpell(self.Spell.SpellID)
+		if VIP_USER then
+			Packet("S_CAST", {spellId = self.Spell.SpellID, targetNetworkId = Target.networkID}):send()
+		else
+			CastSpell(self.Spell.SpellID)
+		end
 	end
 end
 
 function FSLSpells:CastSpellOnTarget(Target)
 	if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
-		CastSpell(self.Spell.SpellID, Target)
+		if VIP_USER then
+			Packet("S_CAST", {spellId = self.Spell.SpellID, targetNetworkId = Target.networkID}):send()
+		else
+			CastSpell(self.Spell.SpellID, Target)
+		end
 	end
 end
 
