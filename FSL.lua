@@ -3,7 +3,7 @@ if VIP_USER then
 	require 'Collision'
 end
 
-FSLVersion = "1.2"
+FSLVersion = "1.3"
 local latestVersion = nil
 local updateCheck = false
 
@@ -58,7 +58,9 @@ G:::::G        G::::G l::::l o::::o     o::::ob:::::b     b:::::b a::::aaaa:::::
                                                                                                             
                                                                                                             
 ]]--
-FSLVP = VPrediction()
+if VIP_USER then
+	FSLVP = VPrediction()
+end
 SPELL_NORMAL = 0
 SPELL_ON_POINT = 1
 SPELL_ON_TARGET = 2
@@ -95,6 +97,72 @@ ColorTable = {
 	Teal = ARGB(0x00,0x00,0x80,0x80),
 	Aqua = ARGB(0x00,0x00,0xFF,0xFF)
 }
+
+local HemorrhageArray ={
+    [1] = "darius_hemo_counter_01.troy",
+    [2] = "darius_hemo_counter_02.troy",
+    [3] = "darius_hemo_counter_03.troy",
+    [4] = "darius_hemo_counter_04.troy",
+    [5] = "darius_hemo_counter_05.troy",
+}
+
+--[[
+	Packets
+MOVE = 2
+ATTACK = 3
+ATTACK_CLOSEST_TARGET = 7
+	
+]]--
+
+FSL_MOVE = 2
+FSL_ATTACK = 3
+FSL_ATTACK_CLOSEST_TARGET = 7
+
+function SendPacketCastSpell(SpellID, ToX, ToZ, Target)
+	if ToX == 0 then
+		ToX = Target.x
+	end
+	if ToZ == 0 then
+		ToZ = Target.z
+	end
+	local TargetID = 0 
+	if Target ~= nil then
+		TargetID = Target.networkID
+	end
+	local Packet = CLoLPacket(153) 
+	Packet.dwArg1 = 1
+	Packet.dwArg2 = 0
+	Packet:EncodeF(myHero.networkID) -- HeroID
+	Packet:Encode1(SpellID) -- SpellID
+	Packet:EncodeF(ToX) -- ToX
+	Packet:EncodeF(ToZ) -- ToZ
+	Packet:EncodeF(myHero.x) -- FromX
+	Packet:EncodeF(myHero.z) -- FormZ
+	Packet:EncodeF(TargetID) -- TargetID
+	SendPacket(Packet)
+end
+
+function SendPacketMove(Type, PosX, PosY, TargetID)
+	local Packet = CLoLPacket(113) -- 
+	Packet.dwArg1 = 1
+	Packet.dwArg2 = 0
+	Packet:EncodeF(myHero.networkID)
+	Packet:Encode1(Type) -- Move Type
+	Packet:EncodeF(PosX) -- To X
+	Packet:EncodeF(PosY) -- To Z
+	Packet:EncodeF(TargetID or 0) -- Target network id
+	Packet:EncodeF(0)
+	Packet:EncodeF(0)
+	Packet:EncodeF(0)
+	Packet:Encode1(0)
+	SendPacket(Packet)
+end
+
+--[[
+
+
+
+]]--
 
 Pos = function(x, y, z)
 	return{
@@ -311,6 +379,14 @@ function FSLMyHero:DrawInfo()
 	end
 end
 
+function FSLMyHero:MoveTo(Pos)
+	if VIP_USER then
+		Packet('S_MOVE', {type = 2, x = Pos.x, y = Pos.z}):send()
+	else
+		myHero:MoveTo(Pos.x, Pos.z)
+	end
+end
+
 --[[
 	Allies
 ]]--
@@ -364,10 +440,35 @@ end
 	
 ]]--
 
+local function GetEnemysHemorrhage(obj)
+	if string.find(string.lower(obj.name),"darius_hemo_counter") then
+        for i, Target in pairs(FSLEnemyTable) do
+            if Target and not Target.dead and Target.visible and  GetDistance(Target, obj) <= 80 then
+				for j, Hemorrhage in pairs(HemorrhageArray) do
+					if obj.name == Hemorrhage then
+						Target.HemorrhageStacks = j
+						Target.LastHemorrhageTmr = GetTickCount()
+					end
+				end
+            end
+        end
+    end
+end
+
 class 'FSLEnemy'
 
 function FSLEnemy:__init()
-	self:Load()
+	if myHero.charName == "Darius" then
+		self:LoadDarius()
+		
+		AddCreateObjCallback(GetEnemysHemorrhage)
+		--AddDeleteObjCallback
+		
+		
+		
+	else
+		self:Load()
+	end
 end
 
 function FSLEnemy:Load()
@@ -375,6 +476,18 @@ function FSLEnemy:Load()
 		Target = heroManager:GetHero(i)
 		if Target.team ~= myHero.team then
 			Target.MaxDmgToTarget = 0
+			FSLEnemyTable[Target.charName] = Target
+		end
+	end
+end
+
+function FSLEnemy:LoadDarius()
+	for i=0, heroManager.iCount, 1 do
+		Target = heroManager:GetHero(i)
+		if Target.team ~= myHero.team then
+			Target.MaxDmgToTarget = 0
+			Target.HemorrhageStacks = 0
+			Target.LastHemorrhageTmr = 0
 			FSLEnemyTable[Target.charName] = Target
 		end
 	end
@@ -936,7 +1049,8 @@ end
 function FSLSpells:CastSpell(Target)
 	if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
 		if VIP_USER then
-			Packet("S_CAST", {spellId = self.Spell.SpellID, targetNetworkId = Target.networkID}):send()
+			--Packet("S_CAST", {spellId = self.Spell.SpellID, targetNetworkId = Target.networkID}):send()
+			SendPacketCastSpell(self.Spell.SpellID, 0, 0, Target)
 		else
 			CastSpell(self.Spell.SpellID)
 		end
@@ -946,7 +1060,8 @@ end
 function FSLSpells:CastSpellOnTarget(Target)
 	if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
 		if VIP_USER then
-			Packet("S_CAST", {spellId = self.Spell.SpellID, targetNetworkId = Target.networkID}):send()
+			--Packet("S_CAST", {spellId = self.Spell.SpellID, targetNetworkId = Target.networkID}):send()
+			SendPacketCastSpell(self.Spell.SpellID, 0, 0, Target)
 		else
 			CastSpell(self.Spell.SpellID, Target)
 		end
@@ -955,14 +1070,20 @@ end
 
 function FSLSpells:CastSpellOnPoint(Target, Predict)
 	if Predict == false then
-		if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
-			CastSpell(self.Spell.SpellID, Target.x, Target.z)
+		if VIP_USER then
+			if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
+				SendPacketCastSpell(self.Spell.SpellID, Target.x, Target.z, nil)
+			end
+		else
+			if Target ~= nil and Get2dDistance(myHero, Target) <= self.Spell.Range and self.Spell.Ready then
+				CastSpell(self.Spell.SpellID, Target.x, Target.z)
+			end
 		end
 	elseif self.Spell.Predict or Predict then
-		if VIP_USER then
-			PredPos,  HitChance,  Position = FSLVP:GetCircularCastPosition(Target, self.Spell.Delay, self.Spell.Width, self.Spell.Range)
+		if VIP_USER then							--(hero, delay, width, range, speed, from, collision)
+			PredPos,  HitChance,  Position = FSLVP:GetCircularCastPosition(Target, self.Spell.Delay, self.Spell.Width, self.Spell.Range, self.Spell.Speed)
 			if GetDistance(PredPos) < self.Spell.Range and HitChance >= self.Spell.HitChance then
-				CastSpell(self.Spell.SpellID, PredPos.x, PredPos.z)
+				SendPacketCastSpell(self.Spell.SpellID, PredPos.x, PredPos.z, nil)
 			end
 		else
 			Pred = TargetPrediction(self.Spell.Range, self.Spell.Speed, self.Spell.Delay, self.Spell.Width)
@@ -982,18 +1103,9 @@ function FSLSpells:CastSkillShot(Target, Predict, CheckCollision)
 		end
 	elseif self.Spell.Predict or Predict then
 		if VIP_USER then
-			if CheckCollision or self.Spell.CheckCollision then
-				Col = Collision(self.Spell.Range or 0, self.Spell.Speed or 0, self.Spell.Delay or 0, self.Spell.Width or 0)
-				MinionCol = Col:GetMinionCollision(myHero, Target)
-				PredPos,  HitChance,  Position = FSLVP:GetLineCastPosition(Target, self.Spell.Delay, self.Spell.Width, self.Spell.Range, self.Spell.Speed, myHero)
-				if not MinionCol and GetDistance(PredPos) < self.Spell.Range and HitChance >= self.Spell.HitChance then
-					CastSpell(self.Spell.SpellID, PredPos.x, PredPos.z)
-				end
-			else
-				PredPos,  HitChance,  Position = FSLVP:GetLineCastPosition(Target, self.Spell.Delay, self.Spell.Width, self.Spell.Range, self.Spell.Speed, myHero)
-				if GetDistance(PredPos) < self.Spell.Range and HitChance >= self.Spell.HitChance then
-					CastSpell(self.Spell.SpellID, PredPos.x, PredPos.z)
-				end
+			PredPos,  HitChance,  Position = FSLVP:GetLineCastPosition(Target, self.Spell.Delay, self.Spell.Width, self.Spell.Range, self.Spell.Speed, myHero,  CheckCollision or false)
+			if GetDistance(PredPos) < self.Spell.Range and HitChance >= self.Spell.HitChance then
+				SendPacketCastSpell(self.Spell.SpellID, PredPos.x, PredPos.z, nil)
 			end
 		else
 			Pred = TargetPrediction(self.Spell.Range, self.Spell.Speed, self.Spell.Delay, self.Spell.Width)
@@ -1110,7 +1222,7 @@ FSLHeroSpellsTable = {
 			Delay = 0,
 			Width = 0,
 			Speed = 0,
-			DMGFormula = function(self, Target)
+			Dmg = function(self, Target)
 				return player:CalcDamage(Target, 70 + (player:GetSpellData(_Q).level-1)*35 + myHero.totalDamage*0.70)
 			end
 		},
@@ -1124,7 +1236,7 @@ FSLHeroSpellsTable = {
 			Delay = 0,
 			Width = 0,
 			Speed = 0,
-			DMGFormula = function(self, Target)
+			Dmg = function(self, Target)
 				return player:CalcDamage(Target, (player:GetSpellData(_W).level*0.20)*myHero.totalDamage)
 			end
 		},
@@ -1138,7 +1250,7 @@ FSLHeroSpellsTable = {
 			Delay = 0.2,
 			Width = 0,
 			Speed = 0,
-			DMGFormula = function(self, Target)
+			Dmg = function(self, Target)
 				return 0
 			end
 		},
@@ -1152,7 +1264,7 @@ FSLHeroSpellsTable = {
 			Delay = 0,
 			Width = 0,
 			Speed = 0,
-			DMGFormula = function(self, Target)
+			Dmg = function(self, Target)
 				if Target.HemorrhageStacks ~= nil and Target.HemorrhageStacks > 0 then
 					return (160 + (player:GetSpellData(_R).level-1)*90 + myHero.addDamage*0.75)*(Target.HemorrhageStacks*0.2)
 				else
@@ -1190,4 +1302,3 @@ FSLHeroSpellsTable = {
 	
 	
 }
-
