@@ -24,7 +24,7 @@ function update()
             DownloadFile(URL, PATH,function ()
                 PrintChat("UPDATED - reload please (F9 twice)")
             end)            
-        elseif latestVersion == FSLVersion then
+        elseif latestVersion == FSLVersion thend
             updateCheck = true
             PrintChat("<font color=\"#CC00FF\">FreezingShot Lib Version " .. FSLVersion .. "</font>")       
         end
